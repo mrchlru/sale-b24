@@ -1,14 +1,14 @@
 """HTTP-клиент MAX Bot API."""
 
-import httpx
-
 from app.config import Settings
+from app.services.http_client import build_async_client
 
 
 class MaxClient:
     """Отправка сообщений через MAX Bot API."""
 
     def __init__(self, settings: Settings) -> None:
+        self._settings = settings
         self._base = settings.max_api_base_url.rstrip("/")
         self._token = settings.max_bot_token
 
@@ -27,7 +27,7 @@ class MaxClient:
         Returns:
             Информация о боте из MAX API.
         """
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with build_async_client(self._settings) as client:
             response = await client.get(
                 f"{self._base}/me",
                 headers=self._headers(),
@@ -39,10 +39,8 @@ class MaxClient:
             return data
 
     async def list_subscriptions(self) -> list[dict[str, object]]:
-        """
-        Возвращает активные webhook-подписки (GET /subscriptions).
-        """
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        """Возвращает активные webhook-подписки (GET /subscriptions)."""
+        async with build_async_client(self._settings) as client:
             response = await client.get(
                 f"{self._base}/subscriptions",
                 headers=self._headers(),
@@ -74,7 +72,7 @@ class MaxClient:
             "secret": secret,
             "update_types": update_types,
         }
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with build_async_client(self._settings) as client:
             response = await client.post(
                 f"{self._base}/subscriptions",
                 headers=self._headers(),
@@ -100,7 +98,7 @@ class MaxClient:
         else:
             raise ValueError("Нужен chat_id или user_id для отправки сообщения")
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with build_async_client(self._settings) as client:
             response = await client.post(
                 f"{self._base}/messages",
                 params=params,
