@@ -26,6 +26,14 @@ DATA_DIR=/tmp/sale_b24_data
 
 ## Настройки App Platform
 
+Два варианта (достаточно одного):
+
+### Вариант A — Docker (если платформа требует Dockerfile)
+
+В репозитории есть `Dockerfile` — выберите деплой через Docker / Dockerfile.
+
+### Вариант B — FastAPI без Docker
+
 | Поле | Значение |
 |------|----------|
 | Тип | Backend → FastAPI |
