@@ -1,27 +1,31 @@
 """Обработка подписки пользователей MAX по секретному коду."""
 
+import logging
 import re
 
 from app.config import Settings
 from app.models import MaxUpdate
 from app.services.max_client import MaxClient
+from app.services.max_reply import resolve_reply_target, send_reply
 from app.storage import JsonIdStore
 
+logger = logging.getLogger(__name__)
 
 _START_WITH_CODE = re.compile(
     r"^/start(?:@\w+)?\s+(\S+)$",
     re.IGNORECASE,
 )
 _START_PLAIN = re.compile(r"^/start(?:@\w+)?$", re.IGNORECASE)
+_PING = re.compile(r"^(?:/ping|ping|привет|hello|hi)$", re.IGNORECASE)
 
 
-def resolve_chat_id(update: MaxUpdate) -> int | None:
-    """Определяет chat_id для ответа и рассылки."""
-    if update.chat_id is not None:
-        return update.chat_id
-    if update.message and update.message.recipient and update.message.recipient.chat_id:
-        return update.message.recipient.chat_id
-    return None
+def _subscribe_prompt(settings: Settings) -> str:
+    """Текст-подсказка для подписки."""
+    return (
+        "Бот на связи.\n"
+        f"Для уведомлений о новых лидах отправьте:\n"
+        f"/start {settings.max_subscribe_code}"
+    )
 
 
 def extract_subscribe_code_from_update(update: MaxUpdate) -> str | None:
@@ -62,6 +66,13 @@ def extract_subscribe_code_from_update(update: MaxUpdate) -> str | None:
     return None
 
 
+def _message_text(update: MaxUpdate) -> str:
+    """Текст входящего сообщения."""
+    if not update.message or not update.message.body:
+        return ""
+    return (update.message.body.text or "").strip()
+
+
 async def handle_max_update(
     update: MaxUpdate,
     settings: Settings,
@@ -69,43 +80,64 @@ async def handle_max_update(
     max_client: MaxClient,
 ) -> None:
     """Обрабатывает события MAX: подписка, отписка, ответы пользователю."""
-    chat_id = resolve_chat_id(update)
+    chat_id, user_id = resolve_reply_target(update)
+    storage_id = chat_id if chat_id is not None else user_id
+
+    logger.info(
+        "MAX update: type=%s chat_id=%s user_id=%s",
+        update.update_type,
+        chat_id,
+        user_id,
+    )
 
     if update.update_type == "bot_stopped":
-        if chat_id is not None:
-            subscribers.remove(chat_id)
+        if storage_id is not None:
+            subscribers.remove(storage_id)
         return
 
     if update.update_type not in {"bot_started", "message_created"}:
         return
 
+    if storage_id is None:
+        logger.warning("MAX update без chat_id/user_id: %s", update.update_type)
+        return
+
     code = extract_subscribe_code_from_update(update)
+
+    if update.update_type == "message_created" and code is None:
+        text = _message_text(update)
+        if _START_PLAIN.match(text) or _PING.match(text):
+            await send_reply(max_client, update, _subscribe_prompt(settings))
+            return
+        if text:
+            await send_reply(
+                max_client,
+                update,
+                "Бот работает. " + _subscribe_prompt(settings).split("\n", 1)[1],
+            )
+        return
+
+    if update.update_type == "bot_started" and code is None:
+        await send_reply(max_client, update, _subscribe_prompt(settings))
+        return
+
     if code is None:
-        if update.update_type == "message_created" and chat_id is not None:
-            text = (update.message.body.text if update.message and update.message.body else "") or ""
-            if _START_PLAIN.match(text.strip()):
-                await max_client.send_text_to_chat(
-                    chat_id,
-                    "Введите код подписки: /start <код>",
-                )
         return
 
     if code != settings.max_subscribe_code:
-        if chat_id is not None:
-            await max_client.send_text_to_chat(chat_id, "Неверный код подписки.")
+        await send_reply(max_client, update, "Неверный код подписки.")
         return
 
-    if chat_id is None:
-        return
-
-    is_new = subscribers.add(chat_id)
+    is_new = subscribers.add(storage_id)
     if is_new:
-        await max_client.send_text_to_chat(
-            chat_id,
+        await send_reply(
+            max_client,
+            update,
             "Вы подписаны на уведомления о новых лидах.",
         )
     else:
-        await max_client.send_text_to_chat(
-            chat_id,
-            "Вы уже подписаны на уведомления.",
+        await send_reply(
+            max_client,
+            update,
+            "Вы уже подписаны. Бот на связи — ждём новые заявки.",
         )

@@ -45,6 +45,11 @@ class Settings(BaseSettings):
 
     data_dir: str = Field(default="./data", validation_alias="DATA_DIR")
     webhook_path_secret: str = Field(default="", validation_alias="WEBHOOK_PATH_SECRET")
+    public_app_url: str = Field(default="", validation_alias="PUBLIC_APP_URL")
+    max_auto_register_webhook: bool = Field(
+        default=True,
+        validation_alias="MAX_AUTO_REGISTER_WEBHOOK",
+    )
 
     def bitrix_webhook_path(self) -> str:
         """Путь обработчика из BITRIX24_HANDLER_URL."""

@@ -2,6 +2,7 @@
 
 import logging
 import os
+from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from app.services.bitrix_client import BitrixClient
 from app.services.bitrix_webhook_parser import extract_lead_id, parse_bitrix_webhook_body
 from app.services.lead_notifier import notify_subscribers_about_lead
 from app.services.max_client import MaxClient
+from app.services.max_startup import ensure_max_webhook
 from app.services.max_subscription import handle_max_update
 from app.storage import processed_lead_store, subscriber_store
 
@@ -23,7 +25,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Bitrix24 → MAX lead notifier", version="1.1.0")
+
+@asynccontextmanager
+async def _lifespan(application: FastAPI):
+    """Стартовые задачи: регистрация MAX webhook."""
+    try:
+        await ensure_max_webhook(get_settings())
+    except Exception:
+        logger.exception("Ошибка при старте MAX webhook")
+    yield
+
+
+app = FastAPI(
+    title="Bitrix24 → MAX lead notifier",
+    version="1.2.0",
+    lifespan=_lifespan,
+)
 
 
 @lru_cache
@@ -39,6 +56,24 @@ def _data_dir() -> Path:
 async def health() -> dict[str, str]:
     """Проверка доступности сервиса после деплоя."""
     return {"status": "ok"}
+
+
+@app.get("/health/max")
+async def health_max() -> dict[str, object]:
+    """Проверка токена MAX и активных webhook-подписок."""
+    settings = _settings()
+    client = MaxClient(settings)
+    try:
+        me = await client.get_me()
+        subscriptions = await client.list_subscriptions()
+        return {
+            "status": "ok",
+            "bot": me.get("username") or me.get("name"),
+            "webhooks": subscriptions,
+            "subscribers": subscriber_store(_data_dir()).list_ids(),
+        }
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
 
 
 async def _handle_bitrix_webhook(request: Request, background_tasks: BackgroundTasks) -> Response:
@@ -91,6 +126,7 @@ async def _handle_max_webhook(request: Request, background_tasks: BackgroundTask
         logger.warning("Некорректный JSON MAX: %s", exc)
         raise HTTPException(status_code=400, detail="Bad request") from exc
 
+    logger.info("MAX webhook получен: update_type=%s", update.update_type)
     background_tasks.add_task(_process_max_update, update)
     return Response(content="ok", media_type="text/plain")
 

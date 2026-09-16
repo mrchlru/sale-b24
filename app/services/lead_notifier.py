@@ -44,12 +44,19 @@ async def notify_subscribers_about_lead(
         await request_mango_callback(phone, settings.mango_call_url_template)
 
     failed: list[int] = []
-    for chat_id in chat_ids:
+    for recipient_id in chat_ids:
         try:
-            await max_client.send_text_to_chat(chat_id, text)
+            await max_client.send_text_to_chat(recipient_id, text)
         except Exception:
-            logger.exception("Не удалось отправить лид %s в chat_id=%s", lead_id, chat_id)
-            failed.append(chat_id)
+            try:
+                await max_client.send_text_to_user(recipient_id, text)
+            except Exception:
+                logger.exception(
+                    "Не удалось отправить лид %s получателю %s",
+                    lead_id,
+                    recipient_id,
+                )
+                failed.append(recipient_id)
 
     if not failed:
         processed.add(lead_id)
