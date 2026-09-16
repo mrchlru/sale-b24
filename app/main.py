@@ -7,6 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 
 from app.config import Settings, get_settings
 from app.models import BitrixSession, MaxUpdate
@@ -15,7 +16,7 @@ from app.services.bitrix_client import BitrixClient
 from app.services.bitrix_webhook_parser import extract_lead_id, parse_bitrix_webhook_body
 from app.services.lead_notifier import notify_subscribers_about_lead
 from app.services.max_client import MaxClient
-from app.services.max_startup import ensure_max_webhook
+from app.services.max_startup import ensure_max_webhook, max_webhook_url, public_base_url
 from app.services.max_subscription import handle_max_update
 from app.storage import processed_lead_store, subscriber_store
 
@@ -59,21 +60,51 @@ async def health() -> dict[str, str]:
 
 
 @app.get("/health/max")
-async def health_max() -> dict[str, object]:
-    """Проверка токена MAX и активных webhook-подписок."""
+async def health_max(reregister: bool = False) -> JSONResponse:
+    """Проверка MAX: токен, webhook, подписчики. ?reregister=1 — повторная регистрация."""
     settings = _settings()
     client = MaxClient(settings)
+    base = public_base_url(settings)
+    expected_webhook = max_webhook_url(settings, base)
+
     try:
         me = await client.get_me()
         subscriptions = await client.list_subscriptions()
-        return {
-            "status": "ok",
+        register_info: dict[str, object] | None = None
+
+        has_webhook = any(
+            expected_webhook in str(item.get("url", ""))
+            for item in subscriptions
+        )
+        if reregister or not has_webhook:
+            register_info = await ensure_max_webhook(settings)
+            subscriptions = await client.list_subscriptions()
+            has_webhook = any(
+                expected_webhook in str(item.get("url", ""))
+                for item in subscriptions
+            )
+
+        ok = has_webhook and bool(me)
+        payload = {
+            "status": "ok" if ok else "degraded",
             "bot": me.get("username") or me.get("name"),
+            "expected_webhook": expected_webhook,
             "webhooks": subscriptions,
             "subscribers": subscriber_store(_data_dir()).list_ids(),
+            "ssl_verify": settings.http_ssl_verify,
+            "register": register_info,
         }
+        return JSONResponse(payload, status_code=200 if ok else 503)
     except Exception as exc:
-        return {"status": "error", "detail": str(exc)}
+        return JSONResponse(
+            {
+                "status": "error",
+                "expected_webhook": expected_webhook,
+                "detail": str(exc),
+                "hint": "Попробуйте HTTP_SSL_VERIFY=false в переменных Timeweb",
+            },
+            status_code=503,
+        )
 
 
 async def _handle_bitrix_webhook(request: Request, background_tasks: BackgroundTasks) -> Response:

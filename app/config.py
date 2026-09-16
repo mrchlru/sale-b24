@@ -50,7 +50,7 @@ class Settings(BaseSettings):
         default=True,
         validation_alias="MAX_AUTO_REGISTER_WEBHOOK",
     )
-    http_ssl_verify: bool = Field(default=True, validation_alias="HTTP_SSL_VERIFY")
+    http_ssl_verify: bool = Field(default=False, validation_alias="HTTP_SSL_VERIFY")
     http_ca_bundle: str = Field(default="", validation_alias="HTTP_CA_BUNDLE")
 
     def bitrix_webhook_path(self) -> str:

@@ -2,6 +2,8 @@
 
 import logging
 
+import httpx
+
 from app.config import Settings
 from app.services.max_client import MaxClient
 
@@ -10,7 +12,7 @@ logger = logging.getLogger(__name__)
 MAX_UPDATE_TYPES = ["bot_started", "message_created", "bot_stopped"]
 
 
-def _public_base_url(settings: Settings) -> str:
+def public_base_url(settings: Settings) -> str:
     """Базовый публичный URL приложения."""
     if settings.public_app_url.strip():
         return settings.public_app_url.strip().rstrip("/")
@@ -29,23 +31,25 @@ def _public_base_url(settings: Settings) -> str:
     )
 
 
-def _max_webhook_url(settings: Settings, base_url: str) -> str:
+def max_webhook_url(settings: Settings, base_url: str) -> str:
     """Полный URL webhook MAX."""
     prefix = settings.webhook_path_secret.strip().strip("/")
     path = f"/{prefix}/max/webhook" if prefix else "/max/webhook"
     return f"{base_url.rstrip('/')}{path}"
 
 
-async def ensure_max_webhook(settings: Settings) -> None:
+async def ensure_max_webhook(settings: Settings) -> dict[str, object]:
     """
-    Регистрирует webhook MAX при старте, если включено MAX_AUTO_REGISTER_WEBHOOK.
+    Регистрирует webhook MAX.
+
+    Returns:
+        Статус операции для /health/max.
     """
     if not settings.max_auto_register_webhook:
-        logger.info("Авторегистрация MAX webhook отключена (MAX_AUTO_REGISTER_WEBHOOK=false)")
-        return
+        return {"registered": False, "reason": "MAX_AUTO_REGISTER_WEBHOOK=false"}
 
-    base_url = _public_base_url(settings)
-    webhook_url = _max_webhook_url(settings, base_url)
+    base_url = public_base_url(settings)
+    webhook_url = max_webhook_url(settings, base_url)
     client = MaxClient(settings)
 
     try:
@@ -62,9 +66,32 @@ async def ensure_max_webhook(settings: Settings) -> None:
             webhook_url,
             result,
         )
-    except Exception:
+        return {
+            "registered": True,
+            "bot": bot_label,
+            "webhook_url": webhook_url,
+            "result": result,
+        }
+    except httpx.HTTPStatusError as exc:
+        body = exc.response.text[:500]
+        logger.error(
+            "MAX API HTTP %s при регистрации webhook %s: %s",
+            exc.response.status_code,
+            webhook_url,
+            body,
+        )
+        return {
+            "registered": False,
+            "webhook_url": webhook_url,
+            "detail": f"HTTP {exc.response.status_code}: {body}",
+        }
+    except Exception as exc:
         logger.exception(
-            "Не удалось зарегистрировать MAX webhook на %s. "
-            "Проверьте MAX_BOT_TOKEN, MAX_WEBHOOK_SECRET и PUBLIC_APP_URL.",
+            "Не удалось зарегистрировать MAX webhook на %s",
             webhook_url,
         )
+        return {
+            "registered": False,
+            "webhook_url": webhook_url,
+            "detail": str(exc),
+        }
