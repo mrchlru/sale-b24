@@ -1,49 +1,51 @@
 # Timeweb App Platform (Backend → FastAPI)
 
-Подключение репозитория GitHub к App Platform.
+## Переменные окружения
 
-## Настройки приложения
+Те же, что были на Railway (Telegram заменён на MAX):
+
+```env
+BITRIX24_CLIENT_ID=local.xxxxxxxxxxxx.xxxxxxxx
+BITRIX24_CLIENT_SECRET=...
+BITRIX24_HANDLER_URL=https://ВАШ-APP.timeweb.cloud/webhook/bitrix24
+
+MANGO_CALL_URL_TEMPLATE=https://integration-webhook.mango-office.ru/...&TelNumbr={phone}
+
+MAX_BOT_TOKEN=...
+MAX_WEBHOOK_SECRET=...
+MAX_SUBSCRIBE_CODE=482917
+MAX_API_BASE_URL=https://platform-api2.max.ru
+
+BITRIX_FIELD_CITY=UF_CRM_...
+BITRIX_FIELD_VISA_QUESTIONS=UF_CRM_...
+
+DATA_DIR=/tmp/sale_b24_data
+```
+
+**Важно:** после деплоя замените в `BITRIX24_HANDLER_URL` домен Railway на URL Timeweb и обновите **Handler URL** в настройках локального приложения Битрикс24.
+
+## Настройки App Platform
 
 | Поле | Значение |
 |------|----------|
 | Тип | Backend → FastAPI |
-| Python | 3.11+ |
-| Команда сборки | `pip3 install --upgrade -r requirements.txt` |
-| Команда запуска | `uvicorn main:app --host 0.0.0.0 --port 8000` |
+| Сборка | `pip3 install --upgrade -r requirements.txt` |
+| Запуск | `uvicorn main:app --host 0.0.0.0 --port 8000` |
 | Health check | `/health` |
 
-## Переменные окружения
+## Битрикс24
 
-Скопируйте из `.env.example` в панели App Platform (раздел «Переменные»):
+В локальном приложении handler должен совпадать с путём из `BITRIX24_HANDLER_URL`:
+`/webhook/bitrix24`
 
-- `BITRIX_PORTAL_DOMAIN`
-- `BITRIX_APPLICATION_TOKEN`
-- `BITRIX_INCOMING_WEBHOOK_URL`
-- `BITRIX_FIELD_CITY`
-- `BITRIX_FIELD_VISA_QUESTIONS`
-- `MAX_API_BASE_URL` = `https://platform-api2.max.ru`
-- `MAX_BOT_TOKEN`
-- `MAX_WEBHOOK_SECRET`
-- `MAX_SUBSCRIBE_CODE`
-- `DATA_DIR` = `/tmp/sale_b24_data` (на PaaS диск эфемерный)
+Событие: **ONCRMLEADADD** (лид создан).
 
-## URL после деплоя
+REST-запросы идут через `access_token` из события — отдельный входящий webhook **не нужен**.
 
-Публичный URL платформы вида `https://xxx.timeweb.cloud` используйте в:
-
-1. **Битрикс** исходящий webhook: `https://xxx.timeweb.cloud/bitrix/webhook`
-2. **MAX** — после модерации, в консоли или через SSH/one-off:
+## MAX после модерации
 
 ```bash
-python scripts/activate_max.py https://xxx.timeweb.cloud --bot-username НикБота
+python scripts/activate_max.py https://ВАШ-APP.timeweb.cloud --bot-username НикБота
 ```
 
-На App Platform нет постоянного SSH по умолчанию — webhook MAX можно зарегистрировать локально тем же скриптом (токен из env).
-
-## Подписчики на PaaS
-
-Файл `data/subscribers.json` может сбрасываться при redeploy. После каждого деплоя менеджерам нужно снова `/start КОД`, либо позже перенесём хранение в БД.
-
-## Автодеплой
-
-При push в `main` Timeweb пересоберёт приложение, если включён autodeploy в настройках репозитория.
+Подписка: `/start КОД` в боте MAX.

@@ -15,7 +15,7 @@ def _lead_contact_name(lead: dict[str, object]) -> str | None:
     return " ".join(parts)
 
 
-def _lead_phone(lead: dict[str, object]) -> str | None:
+def lead_phone(lead: dict[str, object]) -> str | None:
     """Извлекает первый телефон из мультиполя PHONE."""
     phone_field = lead.get("PHONE")
     if not isinstance(phone_field, list):
@@ -48,7 +48,11 @@ def _custom_field(lead: dict[str, object], field_code: str) -> str | None:
     return str(value).strip() or None
 
 
-def format_lead_notification(lead: dict[str, object], settings: Settings) -> str:
+def format_lead_notification(
+    lead: dict[str, object],
+    settings: Settings,
+    portal_domain: str,
+) -> str:
     """
     Собирает текст сообщения для MAX.
 
@@ -67,7 +71,7 @@ def format_lead_notification(lead: dict[str, object], settings: Settings) -> str
     if contact_name:
         lines.append(f"Имя: {contact_name}")
 
-    phone = _lead_phone(lead)
+    phone = lead_phone(lead)
     if phone:
         lines.append(f"Телефон: {phone}")
 
@@ -79,7 +83,9 @@ def format_lead_notification(lead: dict[str, object], settings: Settings) -> str
     if visa:
         lines.append(f"Вопросы по визе: {visa}")
 
-    if lead_id:
-        lines.append(f"Карточка: {settings.bitrix_lead_card_url(lead_id)}")
+    if lead_id and portal_domain.strip():
+        lines.append(
+            f"Карточка: {settings.bitrix_lead_card_url(portal_domain, lead_id)}",
+        )
 
     return "\n".join(lines)

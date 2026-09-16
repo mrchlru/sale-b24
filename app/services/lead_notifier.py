@@ -3,8 +3,10 @@
 import logging
 
 from app.config import Settings
+from app.models import BitrixSession
 from app.services.bitrix_client import BitrixClient
-from app.services.lead_formatter import format_lead_notification
+from app.services.lead_formatter import format_lead_notification, lead_phone
+from app.services.mango_client import request_mango_callback
 from app.services.max_client import MaxClient
 from app.storage import JsonIdStore
 
@@ -13,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 async def notify_subscribers_about_lead(
     lead_id: int,
+    session: BitrixSession,
     settings: Settings,
     bitrix: BitrixClient,
     max_client: MaxClient,
@@ -22,7 +25,7 @@ async def notify_subscribers_about_lead(
     """
     Загружает лид, форматирует текст и рассылает подписчикам.
 
-    Повторная обработка того же lead_id пропускается.
+    При наличии MANGO_CALL_URL_TEMPLATE инициирует обратный звонок.
     """
     if processed.contains(lead_id):
         logger.info("Лид %s уже обработан, пропуск", lead_id)
@@ -33,8 +36,12 @@ async def notify_subscribers_about_lead(
         logger.warning("Нет подписчиков MAX — лид %s не отправлен", lead_id)
         return
 
-    lead = await bitrix.get_lead(lead_id)
-    text = format_lead_notification(lead, settings)
+    lead = await bitrix.get_lead(session, lead_id)
+    text = format_lead_notification(lead, settings, session.domain)
+
+    phone = lead_phone(lead)
+    if phone and settings.mango_call_url_template.strip():
+        await request_mango_callback(phone, settings.mango_call_url_template)
 
     failed: list[int] = []
     for chat_id in chat_ids:

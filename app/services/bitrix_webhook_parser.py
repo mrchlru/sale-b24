@@ -1,13 +1,14 @@
 """Разбор тел запросов Битрикс24."""
 
+import json
 from urllib.parse import parse_qs
 
-from app.models import BitrixWebhookPayload
+from app.models import BitrixWebhookAuth, BitrixWebhookPayload
 
 
 def parse_bitrix_webhook_body(raw_body: bytes, content_type: str) -> BitrixWebhookPayload:
     """
-    Парсит тело исходящего webhook (form или JSON).
+    Парсит тело события (form или JSON).
 
     Raises:
         ValueError: если формат не распознан.
@@ -31,8 +32,6 @@ def extract_lead_id(payload: BitrixWebhookPayload) -> int | None:
 
 
 def _parse_json(raw_body: bytes) -> BitrixWebhookPayload:
-    import json
-
     data = json.loads(raw_body.decode("utf-8"))
     if not isinstance(data, dict):
         raise ValueError("JSON webhook должен быть объектом")
@@ -45,15 +44,20 @@ def _parse_form(raw_body: bytes) -> BitrixWebhookPayload:
     flat: dict[str, str] = {key: values[-1] if values else "" for key, values in parsed.items()}
 
     event = flat.get("event", "")
-    application_token = flat.get("auth[application_token]", "")
     lead_id_raw = flat.get("data[FIELDS][ID]", "")
+
+    auth = BitrixWebhookAuth(
+        access_token=flat.get("auth[access_token]", ""),
+        client_endpoint=flat.get("auth[client_endpoint]", ""),
+        domain=flat.get("auth[domain]", ""),
+        application_token=flat.get("auth[application_token]", ""),
+        member_id=flat.get("auth[member_id]", ""),
+        server_endpoint=flat.get("auth[server_endpoint]", ""),
+        refresh_token=flat.get("auth[refresh_token]", ""),
+    )
 
     data: dict[str, object] = {}
     if lead_id_raw:
         data["FIELDS"] = {"ID": lead_id_raw}
 
-    return BitrixWebhookPayload(
-        event=event,
-        data=data,
-        auth={"application_token": application_token},
-    )
+    return BitrixWebhookPayload(event=event, data=data, auth=auth)

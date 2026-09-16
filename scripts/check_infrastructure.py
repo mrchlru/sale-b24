@@ -43,20 +43,26 @@ async def _check_public_health(public_url: str) -> CheckResult:
         return CheckResult("Публичный /health", False, f"{url} → {exc}")
 
 
-async def _check_bitrix(settings: Settings) -> CheckResult:
-    """Проверяет входящий webhook Битрикс24."""
-    base = settings.bitrix_incoming_webhook_url.rstrip("/") + "/"
-    url = f"{base}crm.lead.fields"
-    try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.get(url)
-        response.raise_for_status()
-        payload = response.json()
-        if "result" in payload:
-            return CheckResult("Битрикс входящий webhook", True, "crm.lead.fields OK")
-        return CheckResult("Битрикс входящий webhook", False, "Нет result в ответе")
-    except Exception as exc:
-        return CheckResult("Битрикс входящий webhook", False, str(exc))
+def _check_bitrix_config(settings: Settings) -> list[CheckResult]:
+    """Проверяет конфиг локального приложения Битрикс24."""
+    handler_ok = settings.bitrix24_handler_url.startswith("https://")
+    return [
+        CheckResult(
+            "BITRIX24_HANDLER_URL",
+            handler_ok,
+            f"POST {settings.bitrix_webhook_path()}",
+        ),
+        CheckResult(
+            "BITRIX24_CLIENT_ID",
+            settings.bitrix24_client_id.startswith("local."),
+            "формат local.xxx",
+        ),
+        CheckResult(
+            "BITRIX24_CLIENT_SECRET",
+            bool(settings.bitrix24_client_secret.strip()),
+            "заполнен" if settings.bitrix24_client_secret.strip() else "пусто",
+        ),
+    ]
 
 
 async def _check_max_token(settings: Settings) -> CheckResult:
@@ -112,9 +118,6 @@ def _check_env(settings: Settings) -> list[CheckResult]:
     """Проверяет заполненность ключевых переменных."""
     results: list[CheckResult] = []
     checks = [
-        ("BITRIX_PORTAL_DOMAIN", settings.bitrix_portal_domain),
-        ("BITRIX_APPLICATION_TOKEN", settings.bitrix_application_token),
-        ("BITRIX_INCOMING_WEBHOOK_URL", settings.bitrix_incoming_webhook_url),
         ("MAX_BOT_TOKEN", settings.max_bot_token),
         ("MAX_WEBHOOK_SECRET", settings.max_webhook_secret),
         ("MAX_SUBSCRIBE_CODE", settings.max_subscribe_code),
@@ -141,7 +144,7 @@ async def run_checks(public_url: str | None, skip_max: bool) -> int:
     if public_url:
         results.append(await _check_public_health(public_url))
 
-    results.append(await _check_bitrix(settings))
+    results.extend(_check_bitrix_config(settings))
 
     if not skip_max:
         results.append(await _check_max_token(settings))
