@@ -8,24 +8,41 @@ from app.models import BitrixWebhookAuth
 logger = logging.getLogger(__name__)
 
 
+def is_outgoing_webhook_event(auth: BitrixWebhookAuth) -> bool:
+    """Событие исходящего webhook: есть application_token, нет access_token."""
+    return bool(auth.application_token.strip()) and not auth.access_token.strip()
+
+
 def verify_bitrix_auth(auth: BitrixWebhookAuth, settings: Settings) -> bool:
     """
     Проверяет блок auth из события Битрикс24.
 
-    Если задан BITRIX24_APPLICATION_TOKEN — сверяет application_token.
-    Иначе принимает событие с валидным OAuth access_token и domain.
+    Поддерживает:
+    - локальное приложение (access_token + client_endpoint + domain);
+    - исходящий webhook (application_token + BITRIX_INCOMING_WEBHOOK_URL).
     """
-    if not auth.access_token.strip() or not auth.client_endpoint.strip():
+    app_token_cfg = settings.bitrix24_application_token.strip()
+
+    if app_token_cfg:
+        if auth.application_token == app_token_cfg:
+            return True
+        if auth.access_token.strip() and auth.client_endpoint.strip() and auth.domain.strip():
+            return True
+        logger.warning("BITRIX24_APPLICATION_TOKEN задан, но токен события не совпал")
         return False
 
-    app_token = settings.bitrix24_application_token.strip()
-    if app_token:
-        return auth.application_token == app_token
+    if auth.access_token.strip() and auth.client_endpoint.strip() and auth.domain.strip():
+        return True
 
-    if not auth.domain.strip():
-        return False
+    if is_outgoing_webhook_event(auth) and settings.bitrix_incoming_webhook_url.strip():
+        logger.info("Исходящий webhook Битрикс24 (REST через входящий webhook)")
+        return True
 
-    logger.debug(
-        "BITRIX24_APPLICATION_TOKEN не задан — проверка только access_token/domain",
+    logger.warning(
+        "Auth отклонён: access_token=%s domain=%s application_token=%s incoming_webhook=%s",
+        bool(auth.access_token.strip()),
+        bool(auth.domain.strip()),
+        bool(auth.application_token.strip()),
+        bool(settings.bitrix_incoming_webhook_url.strip()),
     )
-    return True
+    return False

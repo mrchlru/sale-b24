@@ -62,6 +62,11 @@ def _check_bitrix_config(settings: Settings) -> list[CheckResult]:
             bool(settings.bitrix24_client_secret.strip()),
             "заполнен" if settings.bitrix24_client_secret.strip() else "пусто",
         ),
+        CheckResult(
+            "BITRIX_INCOMING_WEBHOOK_URL",
+            bool(settings.bitrix_incoming_webhook_url.strip()),
+            "нужен для исходящего webhook" if not settings.bitrix_incoming_webhook_url.strip() else "заполнен",
+        ),
     ]
 
 

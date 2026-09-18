@@ -59,6 +59,25 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/health/bitrix")
+async def health_bitrix() -> dict[str, object]:
+    """Диагностика интеграции Битрикс24."""
+    settings = _settings()
+    data_dir = _data_dir()
+    return {
+        "status": "ok",
+        "handler_url": settings.bitrix24_handler_url,
+        "handler_path": settings.bitrix_webhook_path(),
+        "has_incoming_webhook": bool(settings.bitrix_incoming_webhook_url.strip()),
+        "has_application_token": bool(settings.bitrix24_application_token.strip()),
+        "max_subscribers": subscriber_store(data_dir).list_ids(),
+        "hint": (
+            "В Битриксе handler = handler_url, событие ONCRMLEADADD. "
+            "Если исходящий webhook — нужен BITRIX_INCOMING_WEBHOOK_URL."
+        ),
+    }
+
+
 @app.get("/health/max")
 async def health_max(reregister: bool = False) -> JSONResponse:
     """Проверка MAX: токен, webhook, подписчики. ?reregister=1 — повторная регистрация."""
@@ -118,17 +137,25 @@ async def _handle_bitrix_webhook(request: Request, background_tasks: BackgroundT
         logger.warning("Некорректный webhook Битрикс: %s", exc)
         raise HTTPException(status_code=400, detail="Bad request") from exc
 
+    logger.info(
+        "Битрикс webhook: event=%s domain=%s has_token=%s",
+        payload.event,
+        payload.auth.domain or "-",
+        bool(payload.auth.access_token.strip()),
+    )
+
     if not verify_bitrix_auth(payload.auth, settings):
         logger.warning("Отклонён webhook Битрикс: невалидный auth")
         raise HTTPException(status_code=403, detail="Forbidden")
 
     event = payload.event.upper()
     if event != "ONCRMLEADADD":
+        logger.info("Битрикс событие проигнорировано: %s", event)
         return Response(content="ignored", media_type="text/plain")
 
     lead_id = extract_lead_id(payload)
     if lead_id is None:
-        logger.warning("ONCRMLEADADD без ID лида")
+        logger.warning("ONCRMLEADADD без ID лида, data=%s", payload.data)
         return Response(content="no lead id", media_type="text/plain")
 
     session = BitrixSession(
@@ -138,6 +165,7 @@ async def _handle_bitrix_webhook(request: Request, background_tasks: BackgroundT
         server_endpoint=payload.auth.server_endpoint,
         refresh_token=payload.auth.refresh_token,
     )
+    logger.info("Новый лид %s — постановка в очередь MAX", lead_id)
     background_tasks.add_task(_process_new_lead, lead_id, session)
     return Response(content="ok", media_type="text/plain")
 
@@ -165,15 +193,18 @@ async def _handle_max_webhook(request: Request, background_tasks: BackgroundTask
 async def _process_new_lead(lead_id: int, session: BitrixSession) -> None:
     settings = _settings()
     data_dir = _data_dir()
-    await notify_subscribers_about_lead(
-        lead_id=lead_id,
-        session=session,
-        settings=settings,
-        bitrix=BitrixClient(settings),
-        max_client=MaxClient(settings),
-        subscribers=subscriber_store(data_dir),
-        processed=processed_lead_store(data_dir),
-    )
+    try:
+        await notify_subscribers_about_lead(
+            lead_id=lead_id,
+            session=session,
+            settings=settings,
+            bitrix=BitrixClient(settings),
+            max_client=MaxClient(settings),
+            subscribers=subscriber_store(data_dir),
+            processed=processed_lead_store(data_dir),
+        )
+    except Exception:
+        logger.exception("Ошибка обработки лида %s", lead_id)
 
 
 async def _process_max_update(update: MaxUpdate) -> None:
@@ -187,19 +218,21 @@ async def _process_max_update(update: MaxUpdate) -> None:
 
 
 def _register_bitrix_route() -> None:
-    """Регистрирует путь из BITRIX24_HANDLER_URL."""
+    """Регистрирует путь из BITRIX24_HANDLER_URL и фиксированный alias."""
+    paths = {"/webhook/bitrix24"}
     try:
-        path = get_settings().bitrix_webhook_path()
+        paths.add(get_settings().bitrix_webhook_path())
     except Exception:
-        path = "/webhook/bitrix24"
+        pass
 
-    app.add_api_route(
-        path,
-        _handle_bitrix_webhook,
-        methods=["POST"],
-        name="bitrix24_handler",
-    )
-    logger.info("Битрикс handler: POST %s", path)
+    for index, path in enumerate(sorted(paths)):
+        app.add_api_route(
+            path,
+            _handle_bitrix_webhook,
+            methods=["POST"],
+            name=f"bitrix24_handler_{index}",
+        )
+        logger.info("Битрикс handler: POST %s", path)
 
 
 def _register_prefixed_max_webhooks() -> None:

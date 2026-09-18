@@ -23,6 +23,10 @@ class Settings(BaseSettings):
         default="",
         validation_alias="BITRIX24_APPLICATION_TOKEN",
     )
+    bitrix_incoming_webhook_url: str = Field(
+        default="",
+        validation_alias="BITRIX_INCOMING_WEBHOOK_URL",
+    )
 
     mango_call_url_template: str = Field(
         default="",

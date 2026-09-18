@@ -13,6 +13,13 @@ from app.storage import JsonIdStore
 logger = logging.getLogger(__name__)
 
 
+def _portal_domain(session: BitrixSession, bitrix: BitrixClient) -> str:
+    """Домен портала для ссылки на карточку лида."""
+    if session.domain.strip():
+        return session.domain.strip()
+    return bitrix.portal_domain_from_incoming_webhook()
+
+
 async def notify_subscribers_about_lead(
     lead_id: int,
     session: BitrixSession,
@@ -27,6 +34,8 @@ async def notify_subscribers_about_lead(
 
     При наличии MANGO_CALL_URL_TEMPLATE инициирует обратный звонок.
     """
+    logger.info("Обработка лида %s, подписчиков: %s", lead_id, len(subscribers.list_ids()))
+
     if processed.contains(lead_id):
         logger.info("Лид %s уже обработан, пропуск", lead_id)
         return
@@ -37,7 +46,9 @@ async def notify_subscribers_about_lead(
         return
 
     lead = await bitrix.get_lead(session, lead_id)
-    text = format_lead_notification(lead, settings, session.domain)
+    domain = _portal_domain(session, bitrix)
+    text = format_lead_notification(lead, settings, domain)
+    logger.info("Лид %s загружен, отправка в MAX (%s получателей)", lead_id, len(chat_ids))
 
     phone = lead_phone(lead)
     if phone and settings.mango_call_url_template.strip():
@@ -60,6 +71,7 @@ async def notify_subscribers_about_lead(
 
     if not failed:
         processed.add(lead_id)
+        logger.info("Лид %s успешно отправлен в MAX", lead_id)
     else:
         logger.error(
             "Лид %s: ошибки отправки в %s чат(ов), повтор возможен",
