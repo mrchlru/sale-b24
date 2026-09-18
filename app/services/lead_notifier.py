@@ -8,7 +8,7 @@ from app.services.bitrix_client import BitrixClient
 from app.services.lead_formatter import format_lead_notification, lead_phone
 from app.services.mango_client import request_mango_callback
 from app.services.max_client import MaxClient
-from app.storage import JsonIdStore
+from app.storage import JsonIdStore, list_all_subscriber_ids
 
 logger = logging.getLogger(__name__)
 
@@ -34,13 +34,15 @@ async def notify_subscribers_about_lead(
 
     При наличии MANGO_CALL_URL_TEMPLATE инициирует обратный звонок.
     """
-    logger.info("Обработка лида %s, подписчиков: %s", lead_id, len(subscribers.list_ids()))
+    chat_ids = list_all_subscriber_ids(
+        subscribers,
+        settings.parsed_default_subscriber_ids(),
+    )
+    logger.info("Обработка лида %s, подписчиков: %s", lead_id, len(chat_ids))
 
     if processed.contains(lead_id):
         logger.info("Лид %s уже обработан, пропуск", lead_id)
         return
-
-    chat_ids = subscribers.list_ids()
     if not chat_ids:
         logger.warning("Нет подписчиков MAX — лид %s не отправлен", lead_id)
         return

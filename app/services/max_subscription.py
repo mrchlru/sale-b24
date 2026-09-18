@@ -129,6 +129,7 @@ async def handle_max_update(
         return
 
     is_new = subscribers.add(storage_id)
+    logger.info("Подписка MAX: chat/user_id=%s, новый=%s", storage_id, is_new)
     if is_new:
         await send_reply(
             max_client,

@@ -18,7 +18,7 @@ from app.services.lead_notifier import notify_subscribers_about_lead
 from app.services.max_client import MaxClient
 from app.services.max_startup import ensure_max_webhook, max_webhook_url, public_base_url
 from app.services.max_subscription import handle_max_update
-from app.storage import processed_lead_store, subscriber_store
+from app.storage import list_all_subscriber_ids, processed_lead_store, subscriber_store
 
 logging.basicConfig(
     level=logging.INFO,
@@ -70,7 +70,11 @@ async def health_bitrix() -> dict[str, object]:
         "handler_path": settings.bitrix_webhook_path(),
         "has_incoming_webhook": bool(settings.bitrix_incoming_webhook_url.strip()),
         "has_application_token": bool(settings.bitrix24_application_token.strip()),
-        "max_subscribers": subscriber_store(data_dir).list_ids(),
+        "max_subscribers": list_all_subscriber_ids(
+            subscriber_store(data_dir),
+            settings.parsed_default_subscriber_ids(),
+        ),
+        "max_subscribers_from_env": settings.parsed_default_subscriber_ids(),
         "hint": (
             "В Битриксе handler = handler_url, событие ONCRMLEADADD. "
             "Если исходящий webhook — нужен BITRIX_INCOMING_WEBHOOK_URL."
@@ -109,7 +113,10 @@ async def health_max(reregister: bool = False) -> JSONResponse:
             "bot": me.get("username") or me.get("name"),
             "expected_webhook": expected_webhook,
             "webhooks": subscriptions,
-            "subscribers": subscriber_store(_data_dir()).list_ids(),
+            "subscribers": list_all_subscriber_ids(
+                subscriber_store(_data_dir()),
+                settings.parsed_default_subscriber_ids(),
+            ),
             "ssl_verify": settings.http_ssl_verify,
             "register": register_info,
         }
@@ -138,10 +145,11 @@ async def _handle_bitrix_webhook(request: Request, background_tasks: BackgroundT
         raise HTTPException(status_code=400, detail="Bad request") from exc
 
     logger.info(
-        "Битрикс webhook: event=%s domain=%s has_token=%s",
+        "Битрикс webhook: event=%s domain=%s oauth=%s app_token=%s",
         payload.event,
         payload.auth.domain or "-",
         bool(payload.auth.access_token.strip()),
+        "yes" if payload.auth.application_token.strip() else "missing",
     )
 
     if not verify_bitrix_auth(payload.auth, settings):

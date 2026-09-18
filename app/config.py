@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     max_bot_token: str = Field(validation_alias="MAX_BOT_TOKEN")
     max_webhook_secret: str = Field(validation_alias="MAX_WEBHOOK_SECRET")
     max_subscribe_code: str = Field(validation_alias="MAX_SUBSCRIBE_CODE")
+    max_default_subscriber_ids: str = Field(
+        default="",
+        validation_alias="MAX_DEFAULT_SUBSCRIBER_IDS",
+    )
 
     data_dir: str = Field(default="./data", validation_alias="DATA_DIR")
     webhook_path_secret: str = Field(default="", validation_alias="WEBHOOK_PATH_SECRET")
@@ -64,6 +68,18 @@ class Settings(BaseSettings):
         if not path.startswith("/"):
             path = f"/{path}"
         return path.rstrip("/") or "/webhook/bitrix24"
+
+    def parsed_default_subscriber_ids(self) -> list[int]:
+        """Chat ID из MAX_DEFAULT_SUBSCRIBER_IDS (через запятую), не сбрасываются при redeploy."""
+        raw = self.max_default_subscriber_ids.strip()
+        if not raw:
+            return []
+        ids: list[int] = []
+        for part in raw.replace(";", ",").split(","):
+            piece = part.strip()
+            if piece:
+                ids.append(int(piece))
+        return ids
 
     def bitrix_lead_card_url(self, portal_domain: str, lead_id: int) -> str:
         """Ссылка на карточку лида в портале Битрикс24."""

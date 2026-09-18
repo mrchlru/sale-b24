@@ -14,7 +14,7 @@ if str(ROOT) not in sys.path:
 
 from app.config import Settings, get_settings
 from app.services.max_client import MaxClient
-from app.storage import subscriber_store
+from app.storage import list_all_subscriber_ids, subscriber_store
 
 
 class CheckResult:
@@ -111,7 +111,10 @@ def _check_local_data(settings: Settings) -> CheckResult:
     """Проверяет каталог данных и подписчиков."""
     data_dir = Path(settings.data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
-    subscribers = subscriber_store(data_dir).list_ids()
+    subscribers = list_all_subscriber_ids(
+        subscriber_store(data_dir),
+        settings.parsed_default_subscriber_ids(),
+    )
     return CheckResult(
         "Локальные данные",
         True,

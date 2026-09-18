@@ -67,6 +67,11 @@ def subscriber_store(data_dir: Path) -> JsonIdStore:
     return JsonIdStore(data_dir / "subscribers.json")
 
 
+def list_all_subscriber_ids(store: JsonIdStore, default_ids: list[int]) -> list[int]:
+    """Объединяет подписчиков из файла и MAX_DEFAULT_SUBSCRIBER_IDS."""
+    return sorted(set(store.list_ids()) | set(default_ids))
+
+
 def processed_lead_store(data_dir: Path) -> JsonIdStore:
     """Хранилище ID лидов, по которым уже отправлено уведомление."""
     return JsonIdStore(data_dir / "processed_leads.json")
